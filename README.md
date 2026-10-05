@@ -125,20 +125,24 @@ so you'll know, but you'd need an update from here. It's survived two Discord up
 Using BetterDiscord at all is against Discord's terms of service, and so is this. Nobody seems to
 get in trouble for local client mods, but it's your call to make with that in mind.
 
+## Don't want BetterDiscord?
+
+There's a second implementation in [`patch/`](patch/README.md) that fixes all three bugs without
+any client mod. It wraps Discord's own notification module instead of replacing it, so it needs
+nothing but Node to install, and it keeps working when BetterDiscord breaks on a Discord update.
+
+Run one or the other, not both. The patch README compares them.
+
 ## Planned
 
-- **A version that doesn't need BetterDiscord** ([#1](https://github.com/jmjd/discord-notification-persistence/issues/1)).
-  There's a second implementation that patches Discord's own notification file directly and fixes
-  all three bugs with no client mod at all. I use it myself. It isn't published yet because it
-  currently replaces one of Discord's files wholesale, and I'd rather not host Discord's code —
-  it needs reworking to wrap the original instead.
 - **Nicer settings UI** ([#2](https://github.com/jmjd/discord-notification-persistence/issues/2)).
   Cosmetic. The current panel works, it just doesn't use Discord's native switches.
 
 ## Repo layout
 
 ```
-plugin/          the plugin itself, plus its tests
+plugin/          the BetterDiscord plugin, plus its tests
+patch/           the no-client-mod version, plus its tests
 tools/           webhook test script, and the console probes used to find all this
 docs/            the detailed write-ups
 ```
