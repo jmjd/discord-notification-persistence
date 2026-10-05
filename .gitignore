@@ -10,6 +10,11 @@ servers.json
 # Local activity logs: notification timings, server names, guild ids.
 *.log
 
+# Archived copies of Discord's own module, kept locally so a change can be diffed.
+# Never committed: not redistributing Discord code is the whole point of the wrapper.
+stock-history/
+stock-history.json
+
 # Build output
 dist/
 node_modules/

@@ -264,6 +264,64 @@ const LINK = 'discord://-/channels/111222333444555666/999/888';
         check('the log reports which title rewrite was applied',
             /titleMode=replace/.test(logText) && /titleMode=off/.test(logText));
 
+        // ---- the "is it still broken?" probes -----------------------------------------
+        // patch.js guards its CLI behind require.main, so it can be required here.
+        const patcher = require(path.join(__dirname, 'patch.js'));
+        const fixture = (name, body) => {
+            const f = path.join(DIR, name);
+            fs.mkdirSync(path.dirname(f), { recursive: true });
+            fs.writeFileSync(f, body);
+            return f;
+        };
+
+        // A needle straddling a chunk boundary is the one case a streamed scan gets wrong.
+        const needle = 'setCallbacks((action,identifier,userText)=>';
+        const straddle = 'x'.repeat(65536 - 10) + needle + 'y'.repeat(100);
+        check('probe: streamContains finds a needle across a 64KB chunk boundary',
+            patcher.streamContains(fixture('straddle.txt', straddle), needle) === true);
+        check('probe: streamContains returns false when the needle is absent',
+            patcher.streamContains(fixture('absent.txt', 'x'.repeat(200000)), needle) === false);
+        check('probe: streamContains returns null for a file it cannot read',
+            patcher.streamContains(path.join(DIR, 'nope.txt'), needle) === null);
+
+        check('probe: headers read as broken while supportsHeaders returns false',
+            patcher.probeWindowsHeaders(fixture('h1.js', 'supportsHeaders() {\n return false;\n}')).state === 'broken');
+        check('probe: headers read as fixed once it does not',
+            patcher.probeWindowsHeaders(fixture('h2.js', 'supportsHeaders() {\n return true;\n}')).state === 'fixed');
+        check('probe: headers read as unknown if supportsHeaders is gone',
+            patcher.probeWindowsHeaders(fixture('h3.js', 'something else entirely')).state === 'unknown');
+
+        // The deep-link probe needs a Discord-shaped directory to look into.
+        const coreAt = (dirName, body) => {
+            const appDir = path.join(DIR, dirName);
+            fixture(path.join(dirName, 'modules', 'discord_desktop_core-2', 'discord_desktop_core', 'core.asar'), body);
+            return appDir;
+        };
+        check('probe: deep link read as broken while the 3-arg callback survives',
+            patcher.probeDeepLinkCallback(coreAt('appBroken', 'junk ' + needle + ' junk')).state === 'broken');
+        check('probe: deep link read as fixed when only the 4-arg callback remains',
+            patcher.probeDeepLinkCallback(coreAt('appFixed',
+                'junk setCallbacks((action,identifier,userText,fallbackDeepLink)=> junk')).state === 'fixed');
+        check('probe: deep link read as unknown when neither shape is present',
+            patcher.probeDeepLinkCallback(coreAt('appOdd', 'restructured beyond recognition')).state === 'unknown');
+        check('probe: deep link read as unknown with no core.asar at all',
+            patcher.probeDeepLinkCallback(path.join(DIR, 'appEmpty')).state === 'unknown');
+
+        const logLine = (ts, rest) => ts + ' ' + rest;
+        check('probe: timer read as broken from a recent refusal',
+            patcher.probeAutoClearTimer(fixture('l1.log',
+                logLine('2026-10-05T21:52:38.699Z', 'send abc titleLen=1') + '\n'
+                + logLine('2026-10-05T21:52:43.725Z', 'remove-refused abc [auto-clear timer, 5026ms after send] kept') + '\n')).state === 'broken');
+        check('probe: timer read as possibly fixed after a run of unrefused sends',
+            patcher.probeAutoClearTimer(fixture('l2.log',
+                logLine('2026-10-05T21:00:00.000Z', 'remove-refused abc [auto-clear timer, 5000ms after send] kept') + '\n'
+                + Array.from({ length: 6 }, (_, i) => logLine('2026-10-05T22:0' + i + ':00.000Z', 'send x' + i + ' titleLen=1')).join('\n'))).state === 'possibly fixed');
+        check('probe: timer read as unknown when sends exist but nothing was ever refused',
+            patcher.probeAutoClearTimer(fixture('l3.log',
+                logLine('2026-10-05T21:00:00.000Z', 'send abc titleLen=1'))).state === 'unknown');
+        check('probe: timer read as unknown with no log at all',
+            patcher.probeAutoClearTimer(path.join(DIR, 'missing.log')).state === 'unknown');
+
         console.log(failures === 0 ? '\nAll checks passed.' : '\n' + failures + ' check(s) FAILED.');
     }
     catch (err) {

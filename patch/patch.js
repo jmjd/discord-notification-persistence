@@ -19,6 +19,8 @@ const WRAPPER_SRC = path.join(HERE, 'wrapper-notifications_win.js');
 const CONFIG_PATH = path.join(HERE, 'config.json');
 const LOG_PATH = path.join(HERE, 'events.log');
 const SERVERS_PATH = path.join(HERE, 'servers.json');
+const ARCHIVE_DIR = path.join(HERE, 'stock-history');
+const HISTORY_PATH = path.join(HERE, 'stock-history.json');
 // Our wrapper is identified by the one line that makes it a wrapper.
 const MARKER = "require('./notifications_win.stock.js')";
 // The full-copy patch this replaces, so an upgrade can be told apart from a stock file.
@@ -231,11 +233,193 @@ function status() {
     console.log('\nconfig: ' + (fs.existsSync(CONFIG_PATH) ? fs.readFileSync(CONFIG_PATH, 'utf8').trim() : '(none yet)'));
 }
 
-const cmd = process.argv[2] || 'status';
-if (cmd === 'apply') apply();
-else if (cmd === 'revert') revert();
-else if (cmd === 'status') status();
-else {
-    console.error('Usage: node patch.js [status|apply|revert] [--force]');
-    process.exit(1);
+/* ------------------------------------------------------------------ is it still broken? */
+
+/*
+ * These answer "has Discord fixed this yet?" for each of the three bugs, by checking for the
+ * specific thing that causes it rather than by diffing files. A hash telling you something
+ * changed is a chore; "the short callback is still there" is an answer.
+ *
+ * Only two of the three are checkable on disk. The 5s timer and the isMac() gate live in
+ * Discord's renderer bundle, which is fetched from their CDN at runtime and never written to a
+ * file -- so the timer is inferred from this patch's own log instead, which is the only place
+ * its behaviour is recorded.
+ */
+
+/** Looks for `needle` without loading the whole file: ~0.14ms on core.asar vs ~1.06ms. */
+function streamContains(file, needle) {
+    const CHUNK = 65536;
+    let fd;
+    try { fd = fs.openSync(file, 'r'); }
+    catch { return null; }                       // null means "could not read", not "absent"
+    try {
+        const buf = Buffer.alloc(CHUNK);
+        let carry = '';
+        let pos = 0;
+        for (;;) {
+            const n = fs.readSync(fd, buf, 0, CHUNK, pos);
+            if (n <= 0) return false;
+            pos += n;
+            // The carry keeps a needle's worth of the previous chunk so a match that straddles
+            // a chunk boundary is not missed.
+            const text = carry + buf.toString('latin1', 0, n);
+            if (text.includes(needle)) return true;
+            carry = text.slice(-needle.length);
+        }
+    }
+    finally { fs.closeSync(fd); }
 }
+
+const SHORT_CALLBACK = 'setCallbacks((action,identifier,userText)=>';
+const LONG_CALLBACK = 'setCallbacks((action,identifier,userText,fallbackDeepLink)=>';
+
+/** Bug 3: core.asar's Windows callback drops fallbackDeepLink, so Discord's own fallback dies. */
+function probeDeepLinkCallback(appDir) {
+    const modules = path.join(appDir, 'modules');
+    if (!fs.existsSync(modules)) return { state: 'unknown', detail: 'no modules directory' };
+    const core = fs.readdirSync(modules)
+        .filter((n) => /^discord_desktop_core-\d+$/.test(n))
+        .map((n) => path.join(modules, n, 'discord_desktop_core', 'core.asar'))
+        .find((f) => fs.existsSync(f));
+    if (core == null) return { state: 'unknown', detail: 'core.asar not found' };
+
+    const short = streamContains(core, SHORT_CALLBACK);
+    const long = streamContains(core, LONG_CALLBACK);
+    if (short === null) return { state: 'unknown', detail: 'could not read core.asar' };
+    if (short) return { state: 'broken', detail: 'the 3-argument callback is still there' };
+    if (long) return { state: 'fixed', detail: 'only the 4-argument callback remains' };
+    return { state: 'unknown', detail: 'neither callback shape found; core.asar has been restructured' };
+}
+
+/** Bug 2, the half that is on disk: supportsHeaders() hardcoded false in the Windows module. */
+function probeWindowsHeaders(stockFile) {
+    if (!fs.existsSync(stockFile)) return { state: 'unknown', detail: 'no stock file to read' };
+    const text = fs.readFileSync(stockFile, 'utf8');
+    if (!text.includes('supportsHeaders')) {
+        return { state: 'unknown', detail: 'supportsHeaders is gone; the module has been rewritten' };
+    }
+    if (/supportsHeaders\s*\(\s*\)\s*\{\s*return\s+false/.test(text)) {
+        return { state: 'broken', detail: 'supportsHeaders() still returns false' };
+    }
+    return { state: 'fixed', detail: 'supportsHeaders() no longer returns a hardcoded false' };
+}
+
+/**
+ * Bug 1: not on disk at all, so this reads our own log. A run of notifications with no refusal
+ * is the only evidence available that the timer has stopped firing.
+ */
+function probeAutoClearTimer(logFile) {
+    if (!fs.existsSync(logFile)) return { state: 'unknown', detail: 'no log yet' };
+    const lines = fs.readFileSync(logFile, 'utf8').split('\n').filter(Boolean);
+    let lastRefusal = null;
+    let intervalMs = null;
+    let sendsSince = 0;
+    for (const line of lines) {
+        if (line.includes(' remove-refused ')) {
+            lastRefusal = line.slice(0, 24);
+            const m = /auto-clear timer, (\d+)ms/.exec(line);
+            if (m) intervalMs = Number(m[1]);
+            sendsSince = 0;
+        }
+        else if (line.includes(' send ')) sendsSince++;
+    }
+    if (lastRefusal == null) {
+        return {
+            state: 'unknown',
+            detail: lines.some((l) => l.includes(' send '))
+                ? 'notifications were sent but none was ever refused -- is mode set to observe?'
+                : 'no notifications recorded yet',
+        };
+    }
+    if (sendsSince >= 5) {
+        return {
+            state: 'possibly fixed',
+            detail: sendsSince + ' notifications since the last refusal (' + lastRefusal
+                + '); the timer may have stopped firing',
+        };
+    }
+    return {
+        state: 'broken',
+        detail: 'last refused ' + lastRefusal + ' at ' + (intervalMs == null ? '?' : intervalMs)
+            + 'ms after send',
+    };
+}
+
+/** Keeps one copy of each distinct stock module, so a change can be diffed rather than guessed. */
+function archiveStock(stockFile, version) {
+    try {
+        const crypto = require('crypto');
+        const body = fs.readFileSync(stockFile);
+        const hash = crypto.createHash('sha256').update(body).digest('hex');
+        let history = {};
+        try { history = JSON.parse(fs.readFileSync(HISTORY_PATH, 'utf8')); } catch { }
+        // Only meaningful once there is something to compare against: the first archive of a
+        // fresh install is not a change.
+        const hadHistory = Object.keys(history).length > 0;
+        const seen = Object.values(history).some((e) => e && e.sha256 === hash);
+        history[version] = { sha256: hash, bytes: body.length, firstSeen: new Date().toISOString() };
+        fs.mkdirSync(ARCHIVE_DIR, { recursive: true });
+        fs.writeFileSync(path.join(ARCHIVE_DIR, version + '.js'), body);
+        fs.writeFileSync(HISTORY_PATH, JSON.stringify(history, null, 2));
+        return { hash: hash.slice(0, 12), changed: hadHistory && !seen, versions: Object.keys(history).length };
+    }
+    catch (err) {
+        return { hash: null, changed: false, error: err.message };
+    }
+}
+
+function check() {
+    const apps = appDirs();
+    if (apps.length === 0) {
+        console.log('No Discord installation found.');
+        return;
+    }
+    const app = apps[0];
+    const target = targetsIn(app.dir)[0];
+    const stock = target != null ? stockPathFor(target) : null;
+
+    console.log('Discord ' + app.version + ' -- is each bug still present?\n');
+    const results = [
+        ['the 5s auto-clear timer', probeAutoClearTimer(LOG_PATH)],
+        ['the server name (Windows toast headers)', probeWindowsHeaders(stock)],
+        ['the dropped fallbackDeepLink', probeDeepLinkCallback(app.dir)],
+    ];
+    for (const [name, r] of results) {
+        const label = { broken: 'STILL BROKEN  ', fixed: 'FIXED         ',
+            'possibly fixed': 'MAYBE FIXED   ', unknown: 'CANNOT TELL   ' }[r.state];
+        console.log('  ' + label + name);
+        console.log('                ' + r.detail);
+    }
+    console.log('\nThe timer and the isMac() gate live in Discord\'s renderer bundle, which is');
+    console.log('fetched at runtime and never written to disk, so the first line is inferred from');
+    console.log('this patch\'s own log. Re-run tools/probes to check the renderer directly.');
+
+    if (stock != null && fs.existsSync(stock)) {
+        const a = archiveStock(stock, app.version);
+        if (a.hash != null) {
+            console.log('\nDiscord\'s module: sha256 ' + a.hash + ', ' + a.versions
+                + ' version(s) archived in ' + path.basename(ARCHIVE_DIR) + '/');
+            if (a.changed) console.log('  ** this content is new -- worth diffing against the previous copy **');
+        }
+    }
+}
+
+if (require.main === module) {
+    const cmd = process.argv[2] || 'status';
+    if (cmd === 'apply') apply();
+    else if (cmd === 'revert') revert();
+    else if (cmd === 'status') status();
+    else if (cmd === 'check') check();
+    else {
+        console.error('Usage: node patch.js [status|apply|revert|check] [--force]');
+        process.exit(1);
+    }
+}
+
+module.exports = {
+    streamContains,
+    probeDeepLinkCallback,
+    probeWindowsHeaders,
+    probeAutoClearTimer,
+    archiveStock,
+};

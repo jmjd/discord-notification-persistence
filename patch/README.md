@@ -31,11 +31,45 @@ Needs [Node.js](https://nodejs.org).
 ```
 node patch.js apply      # then fully quit Discord from the tray and reopen it
 node patch.js status     # PATCHED / OLD PATCH / stock, per installed build
+node patch.js check      # is each of the three bugs still present?
 node patch.js revert     # puts Discord's own file back
 ```
 
 `config.json` and `servers.json` are created on first apply. Both are re-read while Discord runs,
 so settings take effect without a restart — only changes to the wrapper's own code need one.
+
+### Has Discord fixed it yet?
+
+```
+node patch.js check
+```
+
+Checks for the specific cause of each bug rather than diffing files, because "this file's hash
+changed" is a chore while "the 3-argument callback is still there" is an answer:
+
+```
+Discord 1.0.9260 -- is each bug still present?
+
+  STILL BROKEN  the 5s auto-clear timer
+                last refused 2026-10-05T21:52:43.725Z at 5026ms after send
+  STILL BROKEN  the server name (Windows toast headers)
+                supportsHeaders() still returns false
+  STILL BROKEN  the dropped fallbackDeepLink
+                the 3-argument callback is still there
+```
+
+Only two of those are visible on disk. The 5s timer and the `isMac()` gate live in Discord's
+renderer bundle, which is fetched from their CDN at runtime and never written to a file — so the
+first line is inferred from this patch's own log, which is the only record of that timer's
+behaviour. `tools/probes/` checks the renderer directly.
+
+Each `apply` also archives Discord's own module under `stock-history/` (about 8 KB per distinct
+version) and says so if the content has changed since the last build, so a change can be diffed
+rather than guessed at. That directory is gitignored: keeping a local copy is useful, committing
+Discord's code is the thing this implementation exists to avoid.
+
+Costs, measured: 0.05 ms to hash the module, 0.14 ms to scan `core.asar` for the callback — once
+per Discord update, in the short-lived patcher process. The resident watcher is unchanged.
 
 ### Surviving Discord updates
 
