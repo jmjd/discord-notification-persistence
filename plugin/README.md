@@ -5,7 +5,8 @@ Root cause, with Discord's own code: [`../docs/root-cause.md`](../docs/root-caus
 
 ## Install
 
-1. Install [BetterDiscord](https://betterdiscord.app) if you have not already.
+1. Install [BetterDiscord](https://betterdiscord.app) if you have not already. **1.14 or newer** --
+   the settings panel uses an API added in that release.
 2. Put `NotificationPersistence.plugin.js` in `%APPDATA%\BetterDiscord\plugins`.
 3. Discord → User Settings → Plugins → enable **NotificationPersistence**.
 
@@ -30,7 +31,8 @@ and navigates.
 
 ## Settings
 
-Plugin settings, in Discord's plugin list:
+Plugin settings, in Discord's plugin list. These are Discord's own controls, built from
+[`BdApi.UI.buildSettingsPanel`](https://docs.betterdiscord.app/api/UI):
 
 | Setting | Default | What it does |
 |---|---|---|

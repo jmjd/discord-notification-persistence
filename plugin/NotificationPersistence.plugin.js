@@ -2,7 +2,7 @@
  * @name NotificationPersistence
  * @author jmjd
  * @description Keeps Windows notifications in the notification center instead of deleting them five seconds after they appear, names the server they came from, and makes clicking them open the message.
- * @version 1.1.2
+ * @version 1.2.0
  * @source https://github.com/jmjd/discord-notification-persistence/blob/main/plugin/NotificationPersistence.plugin.js
  * @website https://github.com/jmjd/discord-notification-persistence
  */
@@ -112,6 +112,55 @@ function sanitizeConfig(stored) {
         if (typeof stored[key] === 'boolean') cfg[key] = stored[key];
     }
     return cfg;
+}
+
+/**
+ * The settings panel as data, for BdApi.UI.buildSettingsPanel. Kept pure and exported so the
+ * schema can be checked against the real config without rendering anything: a typo in an `id`
+ * would otherwise write a setting nobody reads, silently.
+ *
+ * `min` and `max` are required on a number setting by BetterDiscord's own types.
+ */
+function settingsSchema(cfg) {
+    return [
+        {
+            type: 'number',
+            id: 'timerWindowMs',
+            name: 'Auto-clear window (ms)',
+            note: 'A removal arriving within this long after a notification appears, with no click '
+                + 'from you, is Discord\'s auto-clear timer and is refused. Discord\'s timer fires at '
+                + 'about 5000ms. Removals after this window are allowed through, which is what lets '
+                + 'the notification center still empty out for things you have read.',
+            value: cfg.timerWindowMs,
+            min: 1000,
+            max: 30000,
+            step: 500,
+        },
+        {
+            type: 'switch',
+            id: 'serverName',
+            name: 'Show the server name',
+            note: 'Discord titles notifications "Sender (#channel, Category)" on Windows, naming '
+                + 'the channel\'s category rather than the server. This replaces it with the server name.',
+            value: cfg.serverName,
+        },
+        {
+            type: 'switch',
+            id: 'reviveClicks',
+            name: 'Open the message when clicked',
+            note: 'Discord forgets a notification once its banner is dismissed, so clicking it '
+                + 'later only focuses the window. This remembers where each one pointed and goes there.',
+            value: cfg.reviveClicks,
+        },
+        {
+            type: 'switch',
+            id: 'log',
+            name: 'Log to console',
+            note: 'Records each refusal, retitle and navigation. Useful for checking the plugin '
+                + 'still works after a Discord update.',
+            value: cfg.log,
+        },
+    ];
 }
 
 // Discord's internal field names are not API, and when one goes missing this plugin degrades
@@ -413,60 +462,18 @@ class NotificationPersistence {
     }
 
     getSettingsPanel() {
-        const panel = document.createElement('div');
-        panel.style.cssText = 'padding:16px;color:var(--text-normal);font-size:14px;';
-
-        const row = (labelText, describeText, control) => {
-            const wrap = document.createElement('div');
-            wrap.style.cssText = 'margin-bottom:20px;';
-            const label = document.createElement('div');
-            label.textContent = labelText;
-            label.style.cssText = 'font-weight:600;margin-bottom:4px;';
-            const describe = document.createElement('div');
-            describe.textContent = describeText;
-            describe.style.cssText = 'color:var(--text-muted);font-size:12px;margin-bottom:8px;';
-            wrap.append(label, describe, control);
-            panel.append(wrap);
-        };
-        const save = () => BdApi.Data.save(NAME, 'settings', this.cfg);
-        const checkbox = (key) => {
-            const el = document.createElement('input');
-            el.type = 'checkbox';
-            el.checked = this.cfg[key];
-            el.onchange = () => { this.cfg[key] = el.checked; save(); };
-            return el;
-        };
-
-        const windowInput = document.createElement('input');
-        windowInput.type = 'number';
-        windowInput.min = '1000';
-        windowInput.step = '500';
-        windowInput.value = String(this.cfg.timerWindowMs);
-        windowInput.style.cssText = 'background:var(--input-background);color:var(--text-normal);'
-            + 'border:1px solid var(--background-tertiary);border-radius:4px;padding:6px 8px;width:140px;';
-        windowInput.onchange = () => {
-            const v = parseInt(windowInput.value, 10);
-            if (!Number.isNaN(v) && v >= 0) { this.cfg.timerWindowMs = v; save(); }
-        };
-        row('Auto-clear window (ms)',
-            'A removal arriving within this long after a notification is shown, with no click '
-            + 'from you, is Discord\'s auto-clear timer (~5000ms) and is refused. Later removals '
-            + 'are honoured, so the notification center still empties normally.', windowInput);
-
-        row('Show the server name',
-            'Discord titles notifications "Sender (#channel, Category)" on Windows, naming the '
-            + 'channel\'s category rather than the server. This replaces it with the server name.',
-            checkbox('serverName'));
-
-        row('Open the message when clicked',
-            'Discord forgets a notification once the banner is dismissed, so clicking it later '
-            + 'only focuses the window. This remembers where each one points and navigates there.',
-            checkbox('reviveClicks'));
-
-        row('Log to console', 'Records refusals, retitles and navigations, for debugging.',
-            checkbox('log'));
-
-        return panel;
+        // Discord's own controls, rather than hand-built DOM. The data comes from a pure
+        // function so the schema is testable; only this call is not.
+        return BdApi.UI.buildSettingsPanel({
+            settings: settingsSchema(this.cfg),
+            onChange: (_categoryId, id, value) => {
+                // Routed through sanitizeConfig so a value arriving from the panel is held to
+                // the same rules as one read from disk.
+                this.cfg = sanitizeConfig(Object.assign({}, this.cfg, { [id]: value }));
+                BdApi.Data.save(NAME, 'settings', this.cfg);
+                this.log('setting changed', id, this.cfg[id]);
+            },
+        });
     }
 }
 
@@ -476,6 +483,7 @@ NotificationPersistence.shouldRefuseClose = shouldRefuseClose;
 NotificationPersistence.deepLinkPath = deepLinkPath;
 NotificationPersistence.shouldNavigate = shouldNavigate;
 NotificationPersistence.sanitizeConfig = sanitizeConfig;
+NotificationPersistence.settingsSchema = settingsSchema;
 NotificationPersistence.DEFAULTS = DEFAULTS;
 
 module.exports = NotificationPersistence;

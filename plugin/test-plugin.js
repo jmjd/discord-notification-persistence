@@ -104,7 +104,10 @@ function installBdApi(discordModule, guilds, settings, bridge, router) {
         },
         Data: { load: () => settings || null, save: () => { } },
         Logger: { info() { }, warn() { }, error() { } },
-        UI: { showToast() { } },
+        UI: {
+            showToast() { },
+            buildSettingsPanel: (props) => ({ _panel: true, props }),
+        },
     };
 }
 
@@ -156,6 +159,37 @@ const Plugin = require(PLUGIN);
     check('settings: unknown keys are dropped', clean({ nonsense: 1 }).nonsense === undefined);
     check('settings: a NaN window still refuses a fresh close once sanitized',
         refuse({ sentAt: 1000, clicked: false }, 1200, clean({ timerWindowMs: NaN })) === true);
+
+    // ---- the settings panel, as data -------------------------------------------------
+    // The panel itself is one BdApi call; everything worth checking is in the schema. A typo in
+    // an id would write a setting nothing reads, which no amount of clicking would reveal.
+    const schema = Plugin.settingsSchema;
+    const live = clean({ timerWindowMs: 4500, serverName: false, reviveClicks: true, log: true });
+    const items = schema(live);
+
+    check('panel: every setting has a type, id, name and note',
+        items.every((i) => i.type && i.id && i.name && i.note));
+    check('panel: every id is a real config key',
+        items.every((i) => Object.prototype.hasOwnProperty.call(D, i.id)));
+    check('panel: every setting the config has is exposed',
+        Object.keys(D).filter((k) => k !== 'maxTracked').every((k) => items.some((i) => i.id === k)));
+    check('panel: values come from the config passed in, not the defaults',
+        items.find((i) => i.id === 'timerWindowMs').value === 4500
+        && items.find((i) => i.id === 'serverName').value === false);
+    check('panel: each type matches the type of its default',
+        items.every((i) => (i.type === 'switch' && typeof D[i.id] === 'boolean')
+            || (i.type === 'number' && typeof D[i.id] === 'number')));
+    check('panel: the number setting carries the min and max its type requires',
+        items.filter((i) => i.type === 'number')
+            .every((i) => typeof i.min === 'number' && typeof i.max === 'number' && i.min < i.max));
+    check('panel: the default window sits inside the offered range',
+        items.filter((i) => i.type === 'number')
+            .every((i) => D[i.id] >= i.min && D[i.id] <= i.max));
+    check('panel: no duplicate ids', new Set(items.map((i) => i.id)).size === items.length);
+    // What the panel's onChange does, without the panel: a value from the UI is sanitized the
+    // same way one read from disk is.
+    check('panel: a change routed through sanitizeConfig is validated',
+        clean(Object.assign({}, live, { timerWindowMs: 'nonsense' })).timerWindowMs === D.timerWindowMs);
 
     // ---- full patch flow -------------------------------------------------------------
     const guilds = { '111222333444555666': { name: 'jmjd' } };

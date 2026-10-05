@@ -33,7 +33,7 @@ Windows only. These bugs don't exist on macOS or Linux.
 
 ## Install
 
-1. Install [BetterDiscord](https://betterdiscord.app) if you don't have it.
+1. Install [BetterDiscord](https://betterdiscord.app) if you don't have it (1.14 or newer).
 2. [**Download NotificationPersistence.plugin.js**](https://github.com/jmjd/discord-notification-persistence/releases/latest/download/NotificationPersistence.plugin.js)
    and put it in `%APPDATA%\BetterDiscord\plugins`.
 3. In Discord: User Settings → Plugins → turn on **NotificationPersistence**.
