@@ -126,15 +126,15 @@ function serverLabel(options) {
 // Discord wraps each name in Unicode isolate characters (U+2068 first strong isolate, U+2069 pop
 // directional isolate). They must survive the rewrite or the title renders with stray direction
 // marks. Returns null when the title is not a shape we recognise, so it can be left alone.
-const FSI = '⁨';
-const PDI = '⁩';
+const FSI = '\u2068';
+const PDI = '\u2069';
 function rewriteTitleServer(title, server) {
     const t = String(title == null ? '' : title);
-    let m = /^(.*\(⁨[^⁩]*⁩,\s*⁨)([^⁩]*)(⁩\)\s*)$/.exec(t);
+    let m = /^(.*\(\u2068[^\u2069]*\u2069,\s*\u2068)([^\u2069]*)(\u2069\)\s*)$/.exec(t);
     if (m != null) return m[1] + server + m[3];
     m = /^(.*\([^,()]*,\s*)([^()]*)(\)\s*)$/.exec(t);
     if (m != null) return m[1] + server + m[3];
-    m = /^(.*\(⁨?[^⁩()]*⁩?)(\)\s*)$/.exec(t);
+    m = /^(.*\(\u2068?[^\u2069()]*\u2069?)(\)\s*)$/.exec(t);
     if (m != null) return m[1] + ', ' + FSI + server + PDI + m[2];
     return null;
 }

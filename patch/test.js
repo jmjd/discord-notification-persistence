@@ -84,14 +84,14 @@ const mod = require(TARGET);
 const stock = require(path.join(DIR, 'notifications_win.stock.js'));
 const calls = stock._calls;
 
-const REAL_TITLE = '⁨Someone⁩ (⁨#testing⁩, ⁨Text Channels⁩)';
+const REAL_TITLE = '\u2068Someone\u2069 (\u2068#testing\u2069, \u2068Text Channels\u2069)';
 const LINK = 'discord://-/channels/111222333444555666/999/888';
 
 (async () => {
     try {
         // ---- pure helpers -----------------------------------------------------------
         check('rewrite: real Discord title keeps its isolates',
-            mod.rewriteTitleServer(REAL_TITLE, 'My Server') === '⁨Someone⁩ (⁨#testing⁩, ⁨My Server⁩)');
+            mod.rewriteTitleServer(REAL_TITLE, 'My Server') === '\u2068Someone\u2069 (\u2068#testing\u2069, \u2068My Server\u2069)');
         check('rewrite: a direct message title is left alone',
             mod.rewriteTitleServer('Just A Person', 'My Server') === null);
         check('clean: unread decorations stripped from a scraped name',
@@ -120,9 +120,9 @@ const LINK = 'discord://-/channels/111222333444555666/999/888';
         const a = await mod.sendNotification({ title: REAL_TITLE, body: 'hi', fallbackDeepLink: LINK });
         check('send delegates and returns Discord\'s identifier', a.identifier === 'id-1');
         check('the server name from servers.json replaces the category',
-            calls.sent[0].title === '⁨Someone⁩ (⁨#testing⁩, ⁨Mapped Server⁩)');
+            calls.sent[0].title === '\u2068Someone\u2069 (\u2068#testing\u2069, \u2068Mapped Server\u2069)');
         check('the original options object is not mutated', calls.sent[0] !== undefined
-            && REAL_TITLE === '⁨Someone⁩ (⁨#testing⁩, ⁨Text Channels⁩)');
+            && REAL_TITLE === '\u2068Someone\u2069 (\u2068#testing\u2069, \u2068Text Channels\u2069)');
 
         // ---- the bug: the auto-clear timer ------------------------------------------
         await mod.removeNotifications([a.identifier]);
