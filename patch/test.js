@@ -110,19 +110,27 @@ const LINK = 'discord://-/channels/111222333444555666/999/888';
             (await mod.getSettings()).authorizationStatus === 'authorized');
 
         const appActions = [];
-        mod.setCallbacks((action, id) => appActions.push(action + ':' + id), 'extra1', 'extra2');
+        const appCallback = (action, id) => appActions.push(action + ':' + id);
+        mod.setCallbacks(appCallback, 'extra1', 'extra2');
+        // Asserting "is a function" would pass even if the app's own callback were handed
+        // straight through, which is the failure this is meant to catch.
         check('setCallbacks installs our handler with Discord, not the app\'s',
-            typeof calls.callbacks === 'function');
+            typeof calls.callbacks === 'function' && calls.callbacks !== appCallback);
         check('setCallbacks forwards any further callbacks untouched',
             calls.extraArgs.length === 2 && calls.extraArgs[0] === 'extra1');
 
         // ---- send + title rewrite ----------------------------------------------------
-        const a = await mod.sendNotification({ title: REAL_TITLE, body: 'hi', fallbackDeepLink: LINK });
+        // Held as a variable so the object Discord's caller owns can be inspected afterwards.
+        const firstOptions = { title: REAL_TITLE, body: 'hi', fallbackDeepLink: LINK };
+        const a = await mod.sendNotification(firstOptions);
         check('send delegates and returns Discord\'s identifier', a.identifier === 'id-1');
         check('the server name from servers.json replaces the category',
             calls.sent[0].title === '\u2068Someone\u2069 (\u2068#testing\u2069, \u2068Mapped Server\u2069)');
-        check('the original options object is not mutated', calls.sent[0] !== undefined
-            && REAL_TITLE === '\u2068Someone\u2069 (\u2068#testing\u2069, \u2068Text Channels\u2069)');
+        // The caller's object must come back untouched: the rewrite goes to a copy, because
+        // Discord's renderer keeps using that object after the call.
+        check('the caller\'s options object is not mutated', firstOptions.title === REAL_TITLE);
+        check('the rewrite went to a copy, not the original',
+            calls.sent[0] !== firstOptions && calls.sent[0].body === firstOptions.body);
 
         // ---- the bug: the auto-clear timer ------------------------------------------
         await mod.removeNotifications([a.identifier]);
@@ -162,13 +170,19 @@ const LINK = 'discord://-/channels/111222333444555666/999/888';
         check('CASE 6 a click Discord can still handle is left alone', sent.length === 1);
 
         // ---- blanket clear ----------------------------------------------------------
-        const e = await mod.sendNotification({ title: REAL_TITLE, body: 'hi', fallbackDeepLink: LINK });
-        const beforeAll = calls.removed.length;
+        // Two notifications, one past the timer window and one inside it, so the sweep has to
+        // make a decision per notification rather than all-or-nothing. Asserting only that the
+        // removed list grew would prove nothing: it never shrinks.
+        const old = await mod.sendNotification({ title: REAL_TITLE, body: 'old', fallbackDeepLink: LINK });
+        await sleep(400);                                   // `old` is now outside the window
+        const fresh = await mod.sendNotification({ title: REAL_TITLE, body: 'fresh', fallbackDeepLink: LINK });
         await mod.removeAllNotifications();
-        check('CASE 7 removeAll keeps a notification inside the timer window',
-            !calls.removed.includes(e.identifier));
-        check('CASE 7 removeAll is expressed as a selective removal, not a blanket one',
-            calls.removedAll === 0 && calls.removed.length >= beforeAll);
+        check('CASE 7 removeAll keeps a notification still inside the timer window',
+            !calls.removed.includes(fresh.identifier));
+        check('CASE 7 removeAll does clear one that is past the window',
+            calls.removed.includes(old.identifier));
+        check('CASE 7 removeAll never delegates Discord\'s blanket clear',
+            calls.removedAll === 0);
 
         // ---- identifiers we never saw ------------------------------------------------
         await mod.removeNotifications(['never-seen']);
