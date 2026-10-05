@@ -150,9 +150,23 @@ function shouldNavigate(entry, cfg) {
 
 /* ------------------------------------------------------------------------------- plugin */
 
-// Discord's bridge has no way to remove a listener, so one is registered per Discord session
-// and delegates to whichever instance is currently running. That keeps BD's hot-reload from
-// stacking up listeners.
+/*
+ * THE ONE THING stop() CANNOT UNDO, AND WHY
+ *
+ * Clicks and dismissals arrive on a renderer event, and registering for that event is one-way.
+ * Checked against Discord 1.0.9260 rather than assumed (see tools/probes/discover8.js):
+ *
+ *   - the native bridge exposes 181 keys, and not one of them unregisters a listener
+ *   - its `on` is `on(e, t) { g.ipc.on(e, t) }`, a pass-through to DiscordNative.ipc.on
+ *   - DiscordNative.ipc exposes exactly `send`, `on` and `invoke`, and the object is frozen
+ *     (writable=false, configurable=false), so no `off` can be reached or added
+ *
+ * The listener therefore outlives the plugin being disabled. It is made harmless rather than
+ * removable: exactly one is ever registered per Discord session, and it does nothing unless an
+ * enabled instance is live. stop() sets `active = false` and clears `liveInstance`, after which
+ * the callback returns immediately -- there is a test for that. Reloading Discord (Ctrl+R) clears
+ * the registration outright, since it belongs to that renderer.
+ */
 let sharedListenerInstalled = false;
 let liveInstance = null;
 
@@ -211,9 +225,10 @@ class NotificationPersistence {
         this.active = false;
         if (liveInstance === this) liveInstance = null;
         BdApi.Patcher.unpatchAll(NAME);
-        // The shared listener stays registered -- the bridge exposes no way to remove one --
-        // but it is inert while no instance is active.
         this.byIdentifier.clear();
+        // Everything this plugin did is now undone except the response listener, which cannot be
+        // unregistered at all -- see the note above sharedListenerInstalled. It is inert from here:
+        // `active` is false and `liveInstance` is null, so its callback returns immediately.
         this.log('stopped', this.stats);
     }
 
