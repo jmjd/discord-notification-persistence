@@ -82,10 +82,10 @@ tools/probes/    the console scripts used to find all of this, kept so anyone ca
 docs/            root cause with code excerpts, and how it was investigated
 ```
 
-A second implementation exists — a patch to Discord's own `notifications_win.js`, which fixes
-the same three bugs in the main process and needs no client mod at all. It is not published here
-yet: it currently works by replacing that file wholesale, which means redistributing Discord's
-code, and it needs restructuring to wrap the original instead. It will land in `patch/`.
+## Planned
+
+- **A second implementation, needing no client mod** ([#1](https://github.com/jmjd/discord-notification-persistence/issues/1)) — a patch to Discord's own `notifications_win.js` that fixes the same three bugs from the main process. It works and is in daily use, but it currently *replaces* that file, which would mean redistributing Discord's code. It needs restructuring to wrap the original instead, after which it will land in `patch/`. Its update watcher has survived two real Discord updates unattended.
+- **Native settings controls** ([#2](https://github.com/jmjd/discord-notification-persistence/issues/2)) — swap the hand-rolled settings panel for `BdApi.UI.buildSettingsPanel`. Cosmetic.
 
 ## Caveats
 
