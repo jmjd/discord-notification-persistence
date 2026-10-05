@@ -122,13 +122,21 @@ consumed it. Each half is justified by the other.
 The title Windows actually receives, read back out of the Windows notification database:
 
 ```xml
-<text>⁨NotificationFix Hook⁩ (⁨#testing⁩, ⁨Text Channels⁩)</text>
-<text>⁨@someone⁩ the message body</text>
+<text><FSI>NotificationFix Hook<PDI> (<FSI>#testing<PDI>, <FSI>Text Channels<PDI>)</text>
+<text><FSI>@someone<PDI> the message body</text>
 ```
 
 `Text Channels` is the channel's *category*, which is Discord's default category name in a new
-server. The `⁨ ⁩` characters are Unicode isolates (U+2068/U+2069) that Discord wraps each name
-in; any rewrite has to preserve them or the title renders with stray direction marks.
+server.
+
+`<FSI>` and `<PDI>` above stand in for invisible Unicode isolate characters — U+2068 FIRST STRONG
+ISOLATE and U+2069 POP DIRECTIONAL ISOLATE — which Discord wraps around every name so that a
+right-to-left username cannot scramble the text around it. Any rewrite has to preserve them, or
+the title renders with stray direction marks. They are written here as visible markers rather than
+embedded directly: the real payload contains the actual characters, and a file containing them
+gets flagged by GitHub as hidden Unicode, which is the same class of character behind the Trojan
+Source attack (CVE-2021-42574). In the source they appear as `\u2068` / `\u2069` escapes for the
+same reason.
 
 ## Bug 3 — clicking a notification does nothing
 
