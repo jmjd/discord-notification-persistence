@@ -1,0 +1,21 @@
+# Secrets and personal data -- never commit these.
+# webhook.txt holds a live Discord webhook token: anyone with it can post to that channel.
+webhook.txt
+mention.txt
+
+# Generated per machine: contains absolute paths, and a map of every server you are in.
+config.json
+servers.json
+
+# Local activity logs: notification timings, server names, guild ids.
+*.log
+
+# Build output
+dist/
+node_modules/
+
+# Editor / OS
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini
