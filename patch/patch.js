@@ -8,7 +8,7 @@
  *         node patch.js revert
  *
  * Safe to re-run.  After Discord auto-updates itself into a new app-<version> folder the
- * stock file comes back, so just run `node patch.js apply` again (see install-task.ps1 for
+ * stock file comes back, so just run `node patch.js apply` again (see install-watcher.ps1 for
  * doing that automatically at logon).
  */
 const fs = require('fs');
