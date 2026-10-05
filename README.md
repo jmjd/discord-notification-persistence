@@ -136,11 +136,6 @@ nothing but Node to install, and it keeps working when BetterDiscord breaks on a
 
 Run one or the other, not both. The patch README compares them.
 
-## Planned
-
-- **Nicer settings UI** ([#2](https://github.com/jmjd/discord-notification-persistence/issues/2)).
-  Cosmetic. The current panel works, it just doesn't use Discord's native switches.
-
 ## Repo layout
 
 ```
