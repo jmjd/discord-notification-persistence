@@ -62,12 +62,43 @@ const DEFAULTS = {
     maxTracked: 300,
 };
 
+// config.json is meant to be hand-edited, so a typo in it is expected rather than exceptional --
+// and an unchecked one fails silently in the worst possible way. `mode: "fxi"` makes retainReason
+// return null for everything, and `timerWindowMs: "soon"` makes `now - sentAt <= NaN` always
+// false. Either leaves the module loaded and doing nothing at all. So every value is validated
+// against what it is allowed to be, and anything else falls back to the default for that key.
+const ENUMS = {
+    mode: ['fix', 'observe'],
+    serverName: ['replace', 'title', 'off'],
+    clickMode: ['ipc', 'protocol'],
+};
+const NUMBERS = ['timerWindowMs', 'graceMs', 'maxTracked'];
+const FLAGS = ['reviveClicks', 'discoverServers', 'log'];
+
+function sanitizeConfig(stored) {
+    const next = Object.assign({}, DEFAULTS);
+    if (stored == null || typeof stored !== 'object') return next;
+    for (const [key, allowed] of Object.entries(ENUMS)) {
+        if (allowed.includes(stored[key])) next[key] = stored[key];
+    }
+    for (const key of NUMBERS) {
+        const n = Number(stored[key]);
+        if (Number.isFinite(n) && n >= 0) next[key] = n;
+    }
+    for (const key of FLAGS) {
+        if (typeof stored[key] === 'boolean') next[key] = stored[key];
+    }
+    if (typeof stored.logFile === 'string' && stored.logFile !== '') next.logFile = stored.logFile;
+    return next;
+}
+exports.sanitizeConfig = sanitizeConfig;
+
 let cfg = Object.assign({}, DEFAULTS);
 let cfgReadAt = 0;
 function loadConfig() {
     if (Date.now() - cfgReadAt < 2000) return;
     cfgReadAt = Date.now();
-    try { Object.assign(cfg, DEFAULTS, JSON.parse(fs_1.readFileSync(CONFIG_PATH, 'utf8'))); }
+    try { cfg = sanitizeConfig(JSON.parse(fs_1.readFileSync(CONFIG_PATH, 'utf8'))); }
     catch { /* keep whatever we last had */ }
 }
 loadConfig();

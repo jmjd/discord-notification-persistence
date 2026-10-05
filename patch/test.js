@@ -103,6 +103,27 @@ const LINK = 'discord://-/channels/111222333444555666/999/888';
         check('retain: after a click is honoured',
             mod.retainReason({ sentAt: 1000, clickedAt: 1100, closedAt: null }, 1200) === null);
 
+        // config.json is hand-edited, so a typo must fall back rather than silently switch the
+        // whole fix off. Both of these would otherwise leave the module loaded and inert.
+        const clean = mod.sanitizeConfig;
+        check('settings: a misspelled mode falls back to "fix", not to doing nothing',
+            clean({ mode: 'fxi' }).mode === 'fix');
+        check('settings: a valid mode is kept', clean({ mode: 'observe' }).mode === 'observe');
+        check('settings: a garbage window falls back instead of poisoning the comparison',
+            clean({ timerWindowMs: 'soon' }).timerWindowMs === 8000);
+        check('settings: a NaN window falls back', clean({ timerWindowMs: NaN }).timerWindowMs === 8000);
+        check('settings: a numeric string window is accepted',
+            clean({ timerWindowMs: '2500' }).timerWindowMs === 2500);
+        check('settings: an unknown serverName mode falls back to "replace"',
+            clean({ serverName: 'attribution' }).serverName === 'replace');
+        check('settings: an unknown clickMode falls back to "ipc"',
+            clean({ clickMode: 'carrier-pigeon' }).clickMode === 'ipc');
+        check('settings: a non-boolean flag falls back',
+            clean({ reviveClicks: 'yes' }).reviveClicks === true);
+        check('settings: a real boolean flag is kept', clean({ log: false }).log === false);
+        check('settings: unknown keys are not carried through',
+            clean({ nonsense: 1 }).nonsense === undefined);
+
         // ---- delegation --------------------------------------------------------------
         check('delegates getAuthorization to Discord\'s module',
             (await mod.getAuthorization()) === 'stock-auth');
@@ -218,6 +239,22 @@ const LINK = 'discord://-/channels/111222333444555666/999/888';
         await mod.removeNotifications([f.identifier]);
         check('CASE 12 observe mode passes every removal through',
             calls.removed.includes(f.identifier));
+
+        // ---- the validation is actually wired in --------------------------------------
+        // Testing sanitizeConfig on its own proves nothing if the load path bypasses it, so this
+        // writes a genuinely broken config and checks the behaviour that depends on it. Without
+        // sanitizing, mode "fxi" makes retainReason return null and every removal goes through.
+        fs.writeFileSync(CONFIG, JSON.stringify({
+            mode: 'fxi', timerWindowMs: 'soon', logFile: LOG, log: true,
+        }, null, 2));
+        await sleep(2100);
+        const g = await mod.sendNotification({ title: REAL_TITLE, body: 'bad config', fallbackDeepLink: LINK });
+        const removedBeforeBadConfig = calls.removed.length;
+        await mod.removeNotifications([g.identifier]);
+        check('CASE 13 a broken config falls back to refusing, not to doing nothing',
+            calls.removed.length === removedBeforeBadConfig);
+        writeConfig({});
+        await sleep(2100);
 
         // ---- the log is diagnosable ---------------------------------------------------
         const logText = fs.readFileSync(LOG, 'utf8');
