@@ -34,11 +34,27 @@ Windows only. These bugs don't exist on macOS or Linux.
 ## Install
 
 1. Install [BetterDiscord](https://betterdiscord.app) if you don't have it.
-2. Drop [`plugin/NotificationPersistence.plugin.js`](plugin/NotificationPersistence.plugin.js)
-   into `%APPDATA%\BetterDiscord\plugins`.
+2. [**Download NotificationPersistence.plugin.js**](https://github.com/jmjd/discord-notification-persistence/releases/latest/download/NotificationPersistence.plugin.js)
+   and put it in `%APPDATA%\BetterDiscord\plugins`.
 3. In Discord: User Settings → Plugins → turn on **NotificationPersistence**.
 
 No restart needed.
+
+If you'd rather read the file first, it's [here](plugin/NotificationPersistence.plugin.js) —
+though use the download link above to save it, since saving from GitHub's code view gives you a
+web page instead of the plugin.
+
+Or, if you have the [BetterDiscord CLI](https://github.com/BetterDiscord/cli), one line does it:
+
+```
+bdcli plugins install https://github.com/jmjd/discord-notification-persistence/releases/latest/download/NotificationPersistence.plugin.js
+```
+
+### Updates
+
+BetterDiscord only auto-updates plugins from its own store, so this one won't tell you when
+there's a new version. If you'd like to know, hit **Watch → Custom → Releases** at the top of
+this page. Otherwise just re-download now and then.
 
 ## Checking that it works
 
