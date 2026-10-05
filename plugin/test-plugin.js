@@ -130,11 +130,32 @@ const Plugin = require(PLUGIN);
     const refuse = Plugin.shouldRefuseClose;
     const cfg = { timerWindowMs: 8000 };
     check('rule: close inside the window with no click is refused',
-        refuse({ shownAt: 1000, clicked: false }, 6000, cfg) === true);
+        refuse({ sentAt: 1000, clicked: false }, 6000, cfg) === true);
     check('rule: close after the window is honoured',
-        refuse({ shownAt: 1000, clicked: false }, 20000, cfg) === false);
+        refuse({ sentAt: 1000, clicked: false }, 20000, cfg) === false);
     check('rule: close after a click is honoured',
-        refuse({ shownAt: 1000, clicked: true }, 2000, cfg) === false);
+        refuse({ sentAt: 1000, clicked: true }, 2000, cfg) === false);
+
+    // Stored settings are untrusted: a bad value must fall back, not silently disable the fix.
+    const clean = Plugin.sanitizeConfig;
+    const D = Plugin.DEFAULTS;
+    check('settings: null falls back to defaults entirely',
+        clean(null).timerWindowMs === D.timerWindowMs);
+    check('settings: a NaN window is rejected rather than disabling every refusal',
+        clean({ timerWindowMs: NaN }).timerWindowMs === D.timerWindowMs);
+    check('settings: a garbage string window is rejected',
+        clean({ timerWindowMs: 'soon' }).timerWindowMs === D.timerWindowMs);
+    check('settings: a negative window is rejected',
+        clean({ timerWindowMs: -5 }).timerWindowMs === D.timerWindowMs);
+    check('settings: a numeric string is accepted and coerced',
+        clean({ timerWindowMs: '2500' }).timerWindowMs === 2500);
+    check('settings: a valid number is kept', clean({ timerWindowMs: 3000 }).timerWindowMs === 3000);
+    check('settings: a non-boolean toggle is rejected',
+        clean({ serverName: 'yes' }).serverName === D.serverName);
+    check('settings: a real boolean toggle is kept', clean({ serverName: false }).serverName === false);
+    check('settings: unknown keys are dropped', clean({ nonsense: 1 }).nonsense === undefined);
+    check('settings: a NaN window still refuses a fresh close once sanitized',
+        refuse({ sentAt: 1000, clicked: false }, 1200, clean({ timerWindowMs: NaN })) === true);
 
     // ---- full patch flow -------------------------------------------------------------
     const guilds = { '111222333444555666': { name: 'jmjd' } };

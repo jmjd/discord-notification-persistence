@@ -90,6 +90,27 @@ Discord's bridge offers no way to remove a listener, so exactly one is registere
 session and routed to whichever plugin instance is live. Without that, BetterDiscord's hot-reload
 would stack a new listener on every edit. Disabling the plugin makes it inert.
 
+## What `stop()` does not undo
+
+Disabling the plugin removes all three patches and clears its state, but **one event listener
+cannot be unregistered**, and it is worth being upfront about that.
+
+Clicks and dismissals arrive on a renderer event. Registering for it is one-way: the native
+bridge exposes 181 keys and none of them removes a listener, its `on` is a pass-through to
+`DiscordNative.ipc.on`, and `DiscordNative.ipc` exposes only `send`, `on` and `invoke` on a frozen
+object — so there is no `off` to call and none can be added. Checked against Discord 1.0.9260 with
+[`../tools/probes/discover8.js`](../tools/probes/discover8.js), not assumed.
+
+So the listener is made harmless instead:
+
+- exactly **one** is registered per Discord session, however many times the plugin is reloaded
+- it does nothing unless an enabled instance is live; `stop()` clears that, and the callback
+  returns on its first line
+- reloading Discord (`Ctrl+R`) clears the registration outright, since it belongs to that renderer
+
+There is a test for the inert-after-stop behaviour. If a future Discord build adds a way to
+unregister, this machinery should be deleted in favour of it.
+
 ## Limitations
 
 - **Windows only.** The bugs do not exist on macOS or Linux.

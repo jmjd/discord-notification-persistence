@@ -2,7 +2,7 @@
  * @name NotificationPersistence
  * @author jmjd
  * @description Keeps Windows notifications in the notification center instead of deleting them five seconds after they appear, names the server they came from, and makes clicking them open the message.
- * @version 1.1.1
+ * @version 1.1.2
  * @source https://github.com/jmjd/discord-notification-persistence/blob/main/plugin/NotificationPersistence.plugin.js
  * @website https://github.com/jmjd/discord-notification-persistence
  */
@@ -93,7 +93,35 @@ function rewriteTitleServer(title, server) {
 function shouldRefuseClose(state, now, cfg) {
     if (state == null) return false;
     if (state.clicked) return false;
-    return now - state.shownAt <= cfg.timerWindowMs;
+    return now - state.sentAt <= cfg.timerWindowMs;
+}
+
+/**
+ * Stored settings are whatever was last written to disk, so every value is checked before use.
+ * One bad number would otherwise disable the fix silently while the plugin still showed as
+ * enabled: `now - sentAt <= NaN` is always false, so nothing would ever be refused.
+ */
+function sanitizeConfig(stored) {
+    const cfg = Object.assign({}, DEFAULTS);
+    if (stored == null || typeof stored !== 'object') return cfg;
+    for (const key of ['timerWindowMs', 'maxTracked']) {
+        const n = Number(stored[key]);
+        if (Number.isFinite(n) && n >= 0) cfg[key] = n;
+    }
+    for (const key of ['serverName', 'reviveClicks', 'log']) {
+        if (typeof stored[key] === 'boolean') cfg[key] = stored[key];
+    }
+    return cfg;
+}
+
+// Discord's internal field names are not API, and when one goes missing this plugin degrades
+// quietly -- no server name, or no navigation -- which is worse than saying so. These warn on the
+// first occurrence only, so a changed field does not fill the console on every notification.
+const warned = new Set();
+function warnOnce(key, ...message) {
+    if (warned.has(key)) return;
+    warned.add(key);
+    BdApi.Logger.warn(NAME, ...message);
 }
 
 /** Extract the in-app path from a discord: deep link, the way Discord's own fallback does. */
@@ -122,9 +150,23 @@ function shouldNavigate(entry, cfg) {
 
 /* ------------------------------------------------------------------------------- plugin */
 
-// Discord's bridge has no way to remove a listener, so one is registered per Discord session
-// and delegates to whichever instance is currently running. That keeps BD's hot-reload from
-// stacking up listeners.
+/*
+ * THE ONE THING stop() CANNOT UNDO, AND WHY
+ *
+ * Clicks and dismissals arrive on a renderer event, and registering for that event is one-way.
+ * Checked against Discord 1.0.9260 rather than assumed (see tools/probes/discover8.js):
+ *
+ *   - the native bridge exposes 181 keys, and not one of them unregisters a listener
+ *   - its `on` is `on(e, t) { g.ipc.on(e, t) }`, a pass-through to DiscordNative.ipc.on
+ *   - DiscordNative.ipc exposes exactly `send`, `on` and `invoke`, and the object is frozen
+ *     (writable=false, configurable=false), so no `off` can be reached or added
+ *
+ * The listener therefore outlives the plugin being disabled. It is made harmless rather than
+ * removable: exactly one is ever registered per Discord session, and it does nothing unless an
+ * enabled instance is live. stop() sets `active = false` and clears `liveInstance`, after which
+ * the callback returns immediately -- there is a test for that. Reloading Discord (Ctrl+R) clears
+ * the registration outright, since it belongs to that renderer.
+ */
 let sharedListenerInstalled = false;
 let liveInstance = null;
 
@@ -132,7 +174,7 @@ class NotificationPersistence {
     constructor() {
         this.cfg = Object.assign({}, DEFAULTS);
         this.states = new WeakMap();          // options object -> close-rule state
-        this.byIdentifier = new Map();        // identifier -> { path, shownAt, discordForgot }
+        this.byIdentifier = new Map();        // identifier -> { path, sentAt, discordForgot }
         this.active = false;
         this.stats = { refused: 0, allowed: 0, retitled: 0, navigated: 0 };
     }
@@ -142,7 +184,7 @@ class NotificationPersistence {
     }
 
     start() {
-        this.cfg = Object.assign({}, DEFAULTS, BdApi.Data.load(NAME, 'settings') || {});
+        this.cfg = sanitizeConfig(BdApi.Data.load(NAME, 'settings'));
         const W = BdApi.Webpack;
 
         this.notifications = W.getByKeys('showNotification')
@@ -154,7 +196,7 @@ class NotificationPersistence {
             return;
         }
 
-        this.bridge = W.getByKeys('invoke', 'focus');
+        this.bridge = this.findBridge(W);
         this.router = W.getByKeys('getHistory', { searchExports: true });
         this.GuildStore = W.getByKeys('getGuild', 'getGuilds');
         if (this.GuildStore == null) BdApi.Logger.warn(NAME, 'GuildStore not found; server names off.');
@@ -183,10 +225,35 @@ class NotificationPersistence {
         this.active = false;
         if (liveInstance === this) liveInstance = null;
         BdApi.Patcher.unpatchAll(NAME);
-        // The shared listener stays registered -- the bridge exposes no way to remove one --
-        // but it is inert while no instance is active.
         this.byIdentifier.clear();
+        // Everything this plugin did is now undone except the response listener, which cannot be
+        // unregistered at all -- see the note above sharedListenerInstalled. It is inert from here:
+        // `active` is false and `liveInstance` is null, so its callback returns immediately.
         this.log('stopped', this.stats);
+    }
+
+    /**
+     * Discord's native-module bridge. `invoke` and `focus` alone are generic enough to match some
+     * other module after a refactor, so `requireModule` -- distinctive to this bridge -- is asked
+     * for as well, and whatever comes back is checked for the three methods actually used. The
+     * looser lookup is kept as a fallback in case `requireModule` is the thing that gets renamed.
+     */
+    findBridge(W) {
+        const usable = (mod) => mod != null
+            && typeof mod.invoke === 'function'
+            && typeof mod.on === 'function'
+            && typeof mod.focus === 'function';
+
+        const strict = W.getByKeys('invoke', 'focus', 'requireModule');
+        if (usable(strict)) return strict;
+
+        const loose = W.getByKeys('invoke', 'focus');
+        if (usable(loose)) {
+            BdApi.Logger.warn(NAME, 'native bridge found without requireModule; '
+                + 'Discord may have restructured it. Click revival may be unreliable.');
+            return loose;
+        }
+        return null;
     }
 
     installResponseListener() {
@@ -211,8 +278,13 @@ class NotificationPersistence {
         const options = args[4];
 
         if (options != null && typeof options === 'object') {
-            const state = { shownAt: Date.now(), clicked: false };
+            // Keyed on the options object rather than the notification's identifier, because the
+            // identifier does not exist yet -- Discord assigns it further down, and the `after`
+            // patch receives this same object, so it can find the state again.
+            const state = { sentAt: Date.now(), clicked: false };
             this.states.set(options, state);
+            // Safe to wrap in place: Discord builds a fresh options literal for every
+            // notification (see its MESSAGE_CREATE handler), so these cannot stack up.
             const originalClick = options.onClick;
             options.onClick = function (...clickArgs) {
                 state.clicked = true;
@@ -223,10 +295,19 @@ class NotificationPersistence {
 
         if (!this.cfg.serverName || this.GuildStore == null) return;
         try {
-            const guildId = trackingProps != null ? trackingProps.guild_id : null;
-            if (guildId == null) return;
+            if (trackingProps == null || typeof trackingProps !== 'object') {
+                warnOnce('tracking-props', 'notification sent without tracking props; '
+                    + 'server names are unavailable. Discord may have changed its arguments.');
+                return;
+            }
+            const guildId = trackingProps.guild_id;
+            if (guildId == null) return;          // a direct message, which has no server
             const guild = this.GuildStore.getGuild(guildId);
-            if (guild == null || !guild.name) return;
+            if (guild == null || !guild.name) {
+                warnOnce('guild-lookup', 'GuildStore had no name for guild ' + guildId
+                    + '; server names will be missing for it.');
+                return;
+            }
             const rewritten = rewriteTitleServer(args[1], guild.name);
             if (rewritten != null) {
                 args[1] = rewritten;
@@ -242,17 +323,21 @@ class NotificationPersistence {
     /** After: wrap the returned notification's close() with the retain rule. */
     onAfterShow(args, ret) {
         if (ret == null || typeof ret.then !== 'function') return ret;
-        const state = this.states.get(args[4]) || { shownAt: Date.now(), clicked: false };
+        const state = this.states.get(args[4]) || { sentAt: Date.now(), clicked: false };
 
         return ret.then((res) => {
             try {
                 const notification = res != null ? res.notification : null;
                 if (notification == null || typeof notification.close !== 'function') return res;
+                // Replaced directly rather than through BdApi.Patcher: Patcher targets named
+                // methods on persistent objects, and this is a throwaway object Discord creates
+                // per notification. Its timer looks the close property up when it fires, so
+                // swapping that property is what intercepts the removal.
                 const realClose = notification.close.bind(notification);
                 notification.close = () => {
                     if (shouldRefuseClose(state, Date.now(), this.cfg)) {
                         this.stats.refused++;
-                        this.log('refused auto-clear', (Date.now() - state.shownAt) + 'ms after show');
+                        this.log('refused auto-clear', (Date.now() - state.sentAt) + 'ms after send');
                         return undefined;
                     }
                     this.stats.allowed++;
@@ -271,14 +356,23 @@ class NotificationPersistence {
         try {
             if (args[0] !== SEND) return;
             const payload = args[1];
-            const path = deepLinkPath(payload != null ? payload.fallbackDeepLink : null);
-            if (path == null) return;
+            const link = payload != null ? payload.fallbackDeepLink : null;
+            const path = deepLinkPath(link);
+            if (path == null) {
+                // A notification with no deep link is normal. One carrying a link we cannot read
+                // means the format changed, and clicks will stop navigating -- worth saying once.
+                if (link != null) {
+                    warnOnce('deep-link-shape', 'could not read an in-app path out of '
+                        + String(link) + '; clicks on forgotten notifications will not navigate.');
+                }
+                return;
+            }
             if (ret == null || typeof ret.then !== 'function') return;
             ret.then((result) => {
                 const identifier = typeof result === 'string' ? result
                     : (result != null ? result.identifier : null);
                 if (identifier == null) return;
-                this.byIdentifier.set(identifier, { path, shownAt: Date.now(), discordForgot: false });
+                this.byIdentifier.set(identifier, { path, sentAt: Date.now(), discordForgot: false });
                 while (this.byIdentifier.size > this.cfg.maxTracked) {
                     const oldest = this.byIdentifier.keys().next();
                     if (oldest.done) break;
@@ -381,6 +475,7 @@ NotificationPersistence.rewriteTitleServer = rewriteTitleServer;
 NotificationPersistence.shouldRefuseClose = shouldRefuseClose;
 NotificationPersistence.deepLinkPath = deepLinkPath;
 NotificationPersistence.shouldNavigate = shouldNavigate;
+NotificationPersistence.sanitizeConfig = sanitizeConfig;
 NotificationPersistence.DEFAULTS = DEFAULTS;
 
 module.exports = NotificationPersistence;
