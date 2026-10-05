@@ -1,10 +1,10 @@
-# NotificationPersistence
+# Discord notification persistence (Windows)
 
 Discord deletes its own notifications on Windows about five seconds after they appear. Step away
 from your desk, come back, and there's nothing in the notification center telling you that you
 missed anything.
 
-This plugin stops that. While it was in there, it also fixed two related annoyances:
+This plugin stops that and fixes two other related annoyances:
 
 - Notifications never tell you which server they came from
 - Clicking an older notification just brings Discord to the front instead of opening the message
