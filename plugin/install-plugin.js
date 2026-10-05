@@ -20,7 +20,12 @@ if (!fs.existsSync(DEST_DIR)) {
     process.exit(1);
 }
 
-fs.copyFileSync(SRC, DEST);
+// Written to a temporary file in the same folder and then renamed over the target, because a
+// rename is atomic: BetterDiscord's watcher sees one complete file appear rather than catching a
+// partial copy mid-write, which errors and drops the plugin out of its list.
+const TEMP = DEST + '.' + process.pid + '.tmp';
+fs.writeFileSync(TEMP, fs.readFileSync(SRC));
+fs.renameSync(TEMP, DEST);
 console.log('Installed -> ' + DEST);
 console.log('');
 console.log('In Discord: User Settings -> Plugins -> enable "NotificationPersistence".');

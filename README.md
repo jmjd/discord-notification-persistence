@@ -56,10 +56,13 @@ BetterDiscord only auto-updates plugins from its own store, so this one won't te
 there's a new version. If you'd like to know, hit **Watch → Custom → Releases** at the top of
 this page. Otherwise just re-download now and then.
 
-When you do update, **turn the plugin off in Discord first**, then replace the file, then turn it
-back on. BetterDiscord reloads plugins the moment the file changes, and if it reads the file while
-it's still being written you'll get an error and the plugin will vanish from the list. It's not
-broken if that happens — press **Ctrl+R** to reload Discord and it comes back.
+When you do update, expect BetterDiscord to **switch the plugin off** as it reloads the new file.
+Just turn it back on in Settings → Plugins; that part seems deliberate on their side.
+
+If instead it errors and disappears from the plugin list, the file was read while it was still
+being written. Press **Ctrl+R** to reload Discord and it comes back. `install-plugin.js` avoids
+that by renaming the file into place rather than copying over it, which BetterDiscord's watcher
+can't catch halfway through.
 
 ## Checking that it works
 
