@@ -114,13 +114,13 @@ const Plugin = require(PLUGIN);
 (async () => {
     // ---- pure helpers ---------------------------------------------------------------
     const rewrite = Plugin.rewriteTitleServer;
-    const real = '⁨NotificationFix Hook⁩ (⁨#testing⁩, ⁨Text Channels⁩)';
+    const real = '\u2068NotificationFix Hook\u2069 (\u2068#testing\u2069, \u2068Text Channels\u2069)';
     check('rewrite: real Discord title, isolates preserved',
-        rewrite(real, 'jmjd') === '⁨NotificationFix Hook⁩ (⁨#testing⁩, ⁨jmjd⁩)');
+        rewrite(real, 'jmjd') === '\u2068NotificationFix Hook\u2069 (\u2068#testing\u2069, \u2068jmjd\u2069)');
     check('rewrite: title without isolates',
         rewrite('Someone (#general, Text Channels)', 'My Server') === 'Someone (#general, My Server)');
     check('rewrite: channel with no category gets the server appended',
-        rewrite('Someone (⁨#general⁩)', 'My Server') === 'Someone (⁨#general⁩, ⁨My Server⁩)');
+        rewrite('Someone (\u2068#general\u2069)', 'My Server') === 'Someone (\u2068#general\u2069, \u2068My Server\u2069)');
     check('rewrite: a direct message title is left alone',
         rewrite('Just A Person', 'My Server') === null);
     check('rewrite: a title already naming the server is left alone',
@@ -150,7 +150,7 @@ const Plugin = require(PLUGIN);
     res.notification.close();                      // what Discord's 5s timer does
     check('FLOW: auto-clear within the window is refused', discord.state.closes === 0);
     check('FLOW: the title was rewritten with the server name',
-        discord.state.lastTitle === '⁨NotificationFix Hook⁩ (⁨#testing⁩, ⁨jmjd⁩)');
+        discord.state.lastTitle === '\u2068NotificationFix Hook\u2069 (\u2068#testing\u2069, \u2068jmjd\u2069)');
 
     // 2. A later removal -- Discord clearing something you have read -- is honoured.
     await sleep(100);                              // past the 60ms test window

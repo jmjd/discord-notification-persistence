@@ -2,7 +2,7 @@
  * @name NotificationPersistence
  * @author jmjd
  * @description Keeps Windows notifications in the notification center instead of deleting them five seconds after they appear, names the server they came from, and makes clicking them open the message.
- * @version 1.1.0
+ * @version 1.1.1
  * @source https://github.com/jmjd/discord-notification-persistence/blob/main/plugin/NotificationPersistence.plugin.js
  * @website https://github.com/jmjd/discord-notification-persistence
  */
@@ -66,8 +66,8 @@ const DEFAULTS = {
     maxTracked: 300,
 };
 
-const FSI = '⁨';
-const PDI = '⁩';
+const FSI = '\u2068';
+const PDI = '\u2069';
 
 const SEND = 'NOTIFICATIONS_SEND_NOTIFICATION';
 const RESPONSE = 'NOTIFICATIONS_RECEIVED_RESPONSE';
@@ -80,11 +80,11 @@ function rewriteTitleServer(title, server) {
     if (server == null || String(server).trim() === '') return null;
     if (t.includes(server)) return null;
 
-    let m = /^(.*\(⁨[^⁩]*⁩,\s*⁨)([^⁩]*)(⁩\)\s*)$/.exec(t);
+    let m = /^(.*\(\u2068[^\u2069]*\u2069,\s*\u2068)([^\u2069]*)(\u2069\)\s*)$/.exec(t);
     if (m != null) return m[1] + server + m[3];
     m = /^(.*\([^,()]*,\s*)([^()]*)(\)\s*)$/.exec(t);
     if (m != null) return m[1] + server + m[3];
-    m = /^(.*\(⁨?[^⁩()]*⁩?)(\)\s*)$/.exec(t);
+    m = /^(.*\(\u2068?[^\u2069()]*\u2069?)(\)\s*)$/.exec(t);
     if (m != null) return m[1] + ', ' + FSI + server + PDI + m[2];
     return null;
 }
