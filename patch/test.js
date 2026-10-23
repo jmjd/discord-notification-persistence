@@ -319,6 +319,18 @@ const LINK = 'discord://-/channels/111222333444555666/999/888';
         check('probe: timer read as unknown when sends exist but nothing was ever refused',
             patcher.probeAutoClearTimer(fixture('l3.log',
                 logLine('2026-10-05T21:00:00.000Z', 'send abc titleLen=1'))).state === 'unknown');
+        check('probe: timer read as unknown when the wrapper is in observe mode',
+            patcher.probeAutoClearTimer(fixture('l4.log',
+                logLine('2026-10-05T21:00:00.000Z', 'remove-refused abc [auto-clear timer, 5000ms after send] kept') + '\n'
+                + logLine('2026-10-06T00:00:00.000Z', 'module-loaded - wrapper mode=observe timerWindowMs=8000') + '\n'
+                + Array.from({ length: 6 }, (_, i) => logLine('2026-10-06T01:0' + i + ':00.000Z', 'send x' + i + ' titleLen=1')).join('\n'))).state === 'unknown');
+        check('probe: sends in observe mode do not count toward possibly fixed',
+            patcher.probeAutoClearTimer(fixture('l5.log',
+                logLine('2026-10-05T21:00:00.000Z', 'remove-refused abc [auto-clear timer, 5000ms after send] kept') + '\n'
+                + logLine('2026-10-06T00:00:00.000Z', 'module-loaded - wrapper mode=observe timerWindowMs=8000') + '\n'
+                + Array.from({ length: 6 }, (_, i) => logLine('2026-10-06T01:0' + i + ':00.000Z', 'send x' + i + ' titleLen=1')).join('\n') + '\n'
+                + logLine('2026-10-07T00:00:00.000Z', 'module-loaded - wrapper mode=fix timerWindowMs=8000') + '\n'
+                + logLine('2026-10-07T01:00:00.000Z', 'send y titleLen=1'))).state === 'broken');
         check('probe: timer read as unknown with no log at all',
             patcher.probeAutoClearTimer(path.join(DIR, 'missing.log')).state === 'unknown');
 

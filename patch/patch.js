@@ -307,21 +307,38 @@ function probeWindowsHeaders(stockFile) {
 /**
  * Bug 1: not on disk at all, so this reads our own log. A run of notifications with no refusal
  * is the only evidence available that the timer has stopped firing.
+ *
+ * Only sends made in "fix" mode count as that evidence. In "observe" mode the wrapper never
+ * refuses anything, and with the BetterDiscord plugin installed the timer's close() is refused
+ * in the renderer before it reaches this module at all -- either way silence proves nothing.
+ * The mode is read from each `module-loaded` line, so a switch partway through the log is
+ * honoured; a log from before those lines existed is taken to be "fix", the old default.
  */
 function probeAutoClearTimer(logFile) {
     if (!fs.existsSync(logFile)) return { state: 'unknown', detail: 'no log yet' };
     const lines = fs.readFileSync(logFile, 'utf8').split('\n').filter(Boolean);
+    let mode = 'fix';
     let lastRefusal = null;
     let intervalMs = null;
     let sendsSince = 0;
     for (const line of lines) {
-        if (line.includes(' remove-refused ')) {
+        const loaded = / module-loaded .*\bwrapper mode=(\w+)/.exec(line);
+        if (loaded) mode = loaded[1];
+        else if (line.includes(' remove-refused ')) {
             lastRefusal = line.slice(0, 24);
             const m = /auto-clear timer, (\d+)ms/.exec(line);
             if (m) intervalMs = Number(m[1]);
             sendsSince = 0;
         }
-        else if (line.includes(' send ')) sendsSince++;
+        else if (line.includes(' send ') && mode === 'fix') sendsSince++;
+    }
+    if (mode !== 'fix') {
+        return {
+            state: 'unknown',
+            detail: 'the wrapper is in ' + mode + ' mode, so it refuses nothing and its log cannot '
+                + 'show the timer (if the BetterDiscord plugin is on, it refuses the timer upstream)'
+                + (lastRefusal == null ? '' : '; last refusal seen in fix mode was ' + lastRefusal),
+        };
     }
     if (lastRefusal == null) {
         return {
